@@ -428,6 +428,11 @@
                               <label htmlFor="class" className="block text-sm font-medium text-slate-300 mb-1">Class & Section</label>
                               <input type="text" id="class" name="class" value={localProfile.class || ''} onChange={handleProfileChange} className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
                           </div>
+                           <div>
+                              <label htmlFor="skills" className="block text-sm font-medium text-slate-300 mb-1">My Skills & Interests</label>
+                              <textarea id="skills" name="skills" value={localProfile.skills || ''} onChange={handleProfileChange} className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-24" placeholder="e.g., Piano, Football, Coding, Public Speaking..."></textarea>
+                              <p className="text-xs text-slate-500 mt-1">Separate skills with a comma.</p>
+                          </div>
                           <div className="pt-2">
                             <button onClick={handleSaveChanges} disabled={isSaving} className="w-full sm:w-auto bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-6 rounded-lg transition-colors duration-300 disabled:bg-slate-600">
                                 {isSaving ? 'Saving...' : 'Save Profile'}
@@ -548,10 +553,11 @@
           };
 
       const QuizComponent = () => {
-        const [quizView, setQuizView] = useState('home'); // home, subject, topic, generating, active, results
+        const [quizView, setQuizView] = useState('home'); // home, subject, generatingTopics, topicSelection, generatingQuiz, active, results
         const [selectedClass, setSelectedClass] = useState(null);
         const [selectedSubject, setSelectedSubject] = useState(null);
-        const [topic, setTopic] = useState('');
+        const [topicsList, setTopicsList] = useState([]);
+        const [selectedTopic, setSelectedTopic] = useState('');
         const [quizQuestions, setQuizQuestions] = useState([]);
         const [userAnswers, setUserAnswers] = useState({});
         const [score, setScore] = useState(0);
@@ -567,23 +573,54 @@
             setSelectedClass(cls);
             setQuizView('subject');
         };
-        const handleSubjectSelect = (sub) => {
-            setSelectedSubject(sub);
-            setQuizView('topic');
+
+        const handleGenerateTopics = async (subject) => {
+            setSelectedSubject(subject);
+            setQuizView('generatingTopics');
+            setGenerationError('');
+
+            try {
+                if (!window.GoogleGenAI) throw new Error("Gemini AI library not loaded.");
+                const ai = new window.GoogleGenAI({ apiKey: process.env.API_KEY });
+                const prompt = `You are an expert educator familiar with the Indian NCERT curriculum. Generate a list of 10-15 important and specific quiz-worthy topics for Class ${selectedClass} ${subject}. Provide your response strictly in the JSON format defined by the schema.`;
+                
+                const topicsSchema = {
+                    type: Type.OBJECT,
+                    properties: { topics: { type: Type.ARRAY, items: { type: Type.STRING } } },
+                    required: ['topics']
+                };
+
+                const response = await ai.models.generateContent({
+                    model: "gemini-2.5-flash",
+                    contents: prompt,
+                    config: { responseMimeType: "application/json", responseSchema: topicsSchema },
+                });
+
+                const parsedResponse = JSON.parse(response.text);
+                if (parsedResponse.topics && parsedResponse.topics.length > 0) {
+                    setTopicsList(parsedResponse.topics);
+                    setQuizView('topicSelection');
+                } else {
+                    throw new Error("AI did not return any topics. Please try selecting the subject again.");
+                }
+            } catch(e) {
+                console.error("Topic generation failed:", e.message);
+                setGenerationError(e.message || "Failed to generate topics for this subject. Please try again.");
+                setQuizView('subject');
+            }
+        };
+
+        const handleTopicSelect = (topic) => {
+            setSelectedTopic(topic);
+            handleGenerateQuiz(topic);
         };
         
-        const handleGenerateQuiz = async () => {
-            if (!topic.trim()) {
-                setGenerationError('Please enter a topic.');
-                return;
-            }
-            setQuizView('generating');
+        const handleGenerateQuiz = async (topic) => {
+            setQuizView('generatingQuiz');
             setGenerationError('');
             
             try {
-                if (!window.GoogleGenAI) {
-                    throw new Error("Gemini AI library not loaded.");
-                }
+                if (!window.GoogleGenAI) throw new Error("Gemini AI library not loaded.");
                 const ai = new window.GoogleGenAI({ apiKey: process.env.API_KEY });
                 const prompt = `You are an expert educator who creates engaging quizzes for students in India. Generate a 5-question multiple-choice quiz based on the NCERT curriculum for Class ${selectedClass} on the topic of "${topic}" from the subject ${selectedSubject}. Each question must have exactly four options. Ensure the correct answer is one of the provided options. Provide your response strictly in the JSON format defined by the schema.`;
                 
@@ -609,10 +646,7 @@
                 const response = await ai.models.generateContent({
                     model: "gemini-2.5-flash",
                     contents: prompt,
-                    config: {
-                        responseMimeType: "application/json",
-                        responseSchema: quizSchema,
-                    },
+                    config: { responseMimeType: "application/json", responseSchema: quizSchema },
                 });
 
                 const parsedResponse = JSON.parse(response.text);
@@ -625,7 +659,7 @@
             } catch(e) {
                 console.error("Quiz generation failed:", e.message);
                 setGenerationError(e.message || "Failed to generate quiz. The topic might be too broad or too specific. Please try again.");
-                setQuizView('topic');
+                setQuizView('topicSelection');
             }
         };
 
@@ -648,7 +682,8 @@
             setQuizView('home');
             setSelectedClass(null);
             setSelectedSubject(null);
-            setTopic('');
+            setTopicsList([]);
+            setSelectedTopic('');
             setQuizQuestions([]);
             setUserAnswers({});
             setScore(0);
@@ -669,32 +704,38 @@
                     <div>
                         <h3 className="text-xl font-semibold mb-4 text-center">Select Subject (Class {selectedClass})</h3>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                             {subjects.map(sub => <button key={sub} onClick={() => handleSubjectSelect(sub)} className="p-4 bg-slate-700 rounded-lg hover:bg-blue-600 transition-colors duration-200 font-bold">{sub}</button>)}
+                             {subjects.map(sub => <button key={sub} onClick={() => handleGenerateTopics(sub)} className="p-4 bg-slate-700 rounded-lg hover:bg-blue-600 transition-colors duration-200 font-bold">{sub}</button>)}
                         </div>
                          <button onClick={() => setQuizView('home')} className="mt-6 text-sm text-slate-400 hover:text-white">← Back to Classes</button>
                     </div>
                 );
-                case 'topic': return (
-                    <div>
-                        <h3 className="text-xl font-semibold mb-4 text-center">Enter Topic for {selectedSubject}</h3>
-                        <div className="flex flex-col gap-4 items-center">
-                            <input type="text" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g., Photosynthesis, The Mughal Empire" className="w-full max-w-lg px-4 py-2 bg-slate-700 border border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                            <button onClick={handleGenerateQuiz} className="w-full max-w-lg bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg transition-colors duration-300">Generate Quiz</button>
-                            {generationError && <p className="text-red-400 text-center mt-2">{generationError}</p>}
-                        </div>
-                         <button onClick={() => setQuizView('subject')} className="mt-6 text-sm text-slate-400 hover:text-white">← Back to Subjects</button>
-                    </div>
-                );
-                case 'generating': return (
+                case 'generatingTopics': return (
                     <div className="text-center py-10">
                         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-400 mx-auto"></div>
-                        <p className="mt-4 text-lg font-semibold text-slate-300">Generating your quiz...</p>
+                        <p className="mt-4 text-lg font-semibold text-slate-300">Generating topics from NCERT curriculum...</p>
+                        <p className="text-slate-400">Please wait a moment.</p>
+                    </div>
+                );
+                case 'topicSelection': return (
+                    <div>
+                        <h3 className="text-xl font-semibold mb-4 text-center">Select a Topic for {selectedSubject}</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {topicsList.map((topic, i) => <button key={i} onClick={() => handleTopicSelect(topic)} className="p-4 bg-slate-700 rounded-lg hover:bg-blue-600 transition-colors duration-200 text-left">{topic}</button>)}
+                        </div>
+                        {generationError && <p className="text-red-400 text-center mt-4 bg-red-900/20 p-3 rounded-md">{generationError}</p>}
+                        <button onClick={() => setQuizView('subject')} className="mt-6 text-sm text-slate-400 hover:text-white">← Back to Subjects</button>
+                    </div>
+                );
+                case 'generatingQuiz': return (
+                    <div className="text-center py-10">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-400 mx-auto"></div>
+                        <p className="mt-4 text-lg font-semibold text-slate-300">Generating your quiz on "{selectedTopic}"...</p>
                         <p className="text-slate-400">Please wait a moment.</p>
                     </div>
                 );
                 case 'active': return (
                     <div>
-                        <h3 className="text-xl font-semibold mb-6 text-center">Quiz on: {topic}</h3>
+                        <h3 className="text-xl font-semibold mb-6 text-center">Quiz on: {selectedTopic}</h3>
                         <div className="space-y-8">
                             {quizQuestions.map((q, qIndex) => (
                                 <div key={qIndex} className="bg-slate-700/50 p-6 rounded-lg">
@@ -742,6 +783,117 @@
                 {renderContent()}
             </div>
         );
+      };
+      
+      const RecommendationsComponent = ({ profile, setActiveView }) => {
+          const [recommendations, setRecommendations] = useState([]);
+          const [isLoading, setIsLoading] = useState(false);
+          const [error, setError] = useState('');
+
+          const hasSkills = profile && profile.skills && profile.skills.trim().length > 0;
+          const Type = { STRING: 'STRING', NUMBER: 'NUMBER', INTEGER: 'INTEGER', BOOLEAN: 'BOOLEAN', ARRAY: 'ARRAY', OBJECT: 'OBJECT' };
+
+          const handleGenerate = async () => {
+              setIsLoading(true);
+              setError('');
+              setRecommendations([]);
+
+              try {
+                  if (!window.GoogleGenAI) throw new Error("Gemini AI library not loaded.");
+                  const ai = new window.GoogleGenAI({ apiKey: process.env.API_KEY });
+
+                  const prompt = `I am a student with the following skills and interests: ${profile.skills}. Generate a list of 5-7 diverse recommendations to help me grow. Include online courses, competitions, useful websites, and project ideas. Provide the response strictly in the JSON format defined by the schema.`;
+
+                  const recSchema = {
+                      type: Type.OBJECT,
+                      properties: {
+                          recommendations: {
+                              type: Type.ARRAY,
+                              items: {
+                                  type: Type.OBJECT,
+                                  properties: {
+                                      category: { type: Type.STRING, description: "E.g., Online Course, Competition, Project Idea, Website, Book" },
+                                      title: { type: Type.STRING },
+                                      description: { type: Type.STRING },
+                                      url: { type: Type.STRING, description: "A relevant URL, if applicable." }
+                                  },
+                                  required: ['category', 'title', 'description']
+                              }
+                          }
+                      },
+                      required: ['recommendations']
+                  };
+
+                  const response = await ai.models.generateContent({
+                      model: "gemini-2.5-flash",
+                      contents: prompt,
+                      config: { responseMimeType: "application/json", responseSchema: recSchema },
+                  });
+
+                  const parsedResponse = JSON.parse(response.text);
+                  if (parsedResponse.recommendations && parsedResponse.recommendations.length > 0) {
+                      setRecommendations(parsedResponse.recommendations);
+                  } else {
+                      throw new Error("The AI did not return any recommendations. Try refining your skills in your profile.");
+                  }
+              } catch(e) {
+                  console.error("Recommendation generation failed:", e);
+                  setError(e.message || "Failed to generate recommendations. Please try again later.");
+              } finally {
+                  setIsLoading(false);
+              }
+          };
+
+          if (!hasSkills) {
+              return (
+                  <div className="text-center bg-slate-800 p-8 rounded-lg shadow-inner">
+                      <h2 className="text-2xl font-semibold mb-4">Unlock Your Potential</h2>
+                      <p className="text-slate-400 mb-6 max-w-lg mx-auto">Add your skills and interests to your profile to receive personalized recommendations for courses, competitions, and more.</p>
+                      <button onClick={() => setActiveView('profile')} className="bg-teal-500 hover:bg-teal-600 text-white font-bold py-2 px-6 rounded-lg transition-colors">
+                          Go to My Profile
+                      </button>
+                  </div>
+              );
+          }
+
+          return (
+              <div className="bg-slate-800 p-8 rounded-lg shadow-inner">
+                  <h2 className="text-2xl font-semibold mb-2">Personalized Recommendations</h2>
+                  <p className="text-slate-400 mb-6">Based on your skills: <span className="font-semibold text-teal-400">{profile.skills}</span></p>
+
+                  <div className="text-center mb-8">
+                      <button onClick={handleGenerate} disabled={isLoading} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg transition-colors duration-300 disabled:bg-slate-600 disabled:cursor-not-allowed text-lg">
+                          {isLoading ? 'Generating...' : '✨ Generate New Recommendations'}
+                      </button>
+                  </div>
+
+                  {isLoading && (
+                       <div className="text-center py-10">
+                          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-400 mx-auto"></div>
+                          <p className="mt-4 text-lg font-semibold text-slate-300">Finding the best opportunities for you...</p>
+                       </div>
+                  )}
+
+                  {error && <p className="text-red-400 text-center bg-red-900/20 p-3 rounded-md">{error}</p>}
+
+                  {recommendations.length > 0 && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                          {recommendations.map((rec, index) => (
+                              <div key={index} className="bg-slate-900/70 p-6 rounded-xl border border-slate-700/50 flex flex-col">
+                                  <span className="inline-block bg-purple-500/20 text-purple-300 px-2.5 py-1 rounded-full text-xs font-semibold self-start mb-3">{rec.category}</span>
+                                  <h3 className="font-bold text-xl text-white mb-2 flex-grow">{rec.title}</h3>
+                                  <p className="text-slate-400 text-sm mb-4">{rec.description}</p>
+                                  {rec.url && (
+                                      <a href={rec.url} target="_blank" rel="noopener noreferrer" className="inline-block mt-auto bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors text-center">
+                                          Learn More
+                                      </a>
+                                  )}
+                              </div>
+                          ))}
+                      </div>
+                  )}
+              </div>
+          );
       };
 
       const StudentDashboard = ({ session, profile, handleLogout, updateProfile }) => {
@@ -809,15 +961,6 @@
                   }
               }
           };
-
-          const PlaceholderComponent = ({ title }) => (
-            <div className="bg-slate-800 p-8 rounded-lg shadow-inner">
-                <h2 className="text-3xl font-bold mb-4">{title}</h2>
-                <div className="border-t border-slate-700 pt-4">
-                    <p className="text-slate-400 text-lg">This feature is currently under development. Check back soon!</p>
-                </div>
-            </div>
-          );
           
           const ProgressChart = ({ achievements }) => {
               const approvedAchievements = achievements.filter(a => a.status === 'approved');
@@ -1081,6 +1224,7 @@
               add: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>,
               achievements: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l1.293-1.293a1 1 0 011.414 0l.586.586a1 1 0 001.414 0l.586-.586a1 1 0 011.414 0L17 6v13m-8 0h8M5 21h14"></path></svg>,
               quizzes: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>,
+              recommendations: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>,
               notifications: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>,
               leaderboard: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>,
               profile: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>,
@@ -1091,6 +1235,7 @@
             dashboard: 'Dashboard',
             achievements: 'My Achievements',
             quizzes: 'Practice Quizzes',
+            recommendations: 'For You ✨',
             notifications: 'Notifications',
             leaderboard: 'Leaderboard',
             profile: 'My Profile'
@@ -1107,6 +1252,7 @@
                               <NavItem icon={icons.add} label="Add Achievement" isAction={true} action={() => setIsModalOpen(true)} />
                               <NavItem icon={icons.achievements} label="My Achievements" viewName="achievements" />
                               <NavItem icon={icons.quizzes} label="Practice Quizzes" viewName="quizzes" />
+                              <NavItem icon={icons.recommendations} label="Recommendations" viewName="recommendations" />
                               <NavItem icon={icons.leaderboard} label="Leaderboard" viewName="leaderboard" />
                               <NavItem icon={icons.notifications} label="Notifications" viewName="notifications" />
                           </ul>
@@ -1136,6 +1282,7 @@
                             {activeView === 'dashboard' && <DashboardHome />}
                             {activeView === 'achievements' && <MyAchievementsList achievements={myAchievements} loading={loading} />}
                             {activeView === 'quizzes' && <QuizComponent />}
+                            {activeView === 'recommendations' && <RecommendationsComponent profile={profile} setActiveView={setActiveView} />}
                             {activeView === 'notifications' && <NotificationsComponent />}
                             {activeView === 'leaderboard' && <LeaderboardComponent />}
                             {activeView === 'profile' && <ProfileEditor profile={profile} onProfileUpdate={updateProfile} />}
@@ -1373,7 +1520,7 @@
 
                 const { data: profileData, error: profileError } = await supabaseClient
                     .from('profiles')
-                    .select('full_name, class, avatar_url')
+                    .select('full_name, class, avatar_url, skills')
                     .eq('id', userId)
                     .single();
 
@@ -1426,6 +1573,17 @@
                             </div>
                             <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight">{profile.full_name}</h1>
                             {profile.class && <p className="text-xl text-slate-400 mt-2">{profile.class}</p>}
+                            {profile.skills && (
+                                <div className="mt-4 max-w-2xl mx-auto">
+                                    <div className="flex flex-wrap justify-center gap-2">
+                                        {profile.skills.split(',').map(skill => skill.trim()).filter(Boolean).map((skill, index) => (
+                                            <span key={index} className="bg-teal-500/20 text-teal-300 px-3 py-1 rounded-full text-sm font-medium">
+                                                {skill}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </header>
                     )}
 
@@ -1578,6 +1736,7 @@
                   id: session.user.id,
                   full_name: updatedProfile.full_name,
                   class: updatedProfile.class,
+                  skills: updatedProfile.skills,
                   avatar_url: avatarUrl
               });
 
