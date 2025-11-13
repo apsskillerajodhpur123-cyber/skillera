@@ -553,76 +553,30 @@
           };
 
       const QuizComponent = () => {
-        const [quizView, setQuizView] = useState('home'); // home, subject, generatingTopics, topicSelection, generatingQuiz, active, results
-        const [selectedClass, setSelectedClass] = useState(null);
-        const [selectedSubject, setSelectedSubject] = useState(null);
-        const [topicsList, setTopicsList] = useState([]);
-        const [selectedTopic, setSelectedTopic] = useState('');
+        const [quizView, setQuizView] = useState('home'); // home, active, results
+        const [topic, setTopic] = useState('');
         const [quizQuestions, setQuizQuestions] = useState([]);
         const [userAnswers, setUserAnswers] = useState({});
         const [score, setScore] = useState(0);
         const [generationError, setGenerationError] = useState('');
-
-        const classes = ['6', '7', '8', '9', '10', '11', '12'];
-        const subjects = ['Science', 'Mathematics', 'Social Science', 'History', 'Geography', 'Physics', 'Chemistry', 'Biology'];
+        const [isGenerating, setIsGenerating] = useState(false);
 
         // Gemini JSON Schema Enum Helper
         const Type = { STRING: 'STRING', NUMBER: 'NUMBER', INTEGER: 'INTEGER', BOOLEAN: 'BOOLEAN', ARRAY: 'ARRAY', OBJECT: 'OBJECT' };
-
-        const handleClassSelect = (cls) => {
-            setSelectedClass(cls);
-            setQuizView('subject');
-        };
-
-        const handleGenerateTopics = async (subject) => {
-            setSelectedSubject(subject);
-            setQuizView('generatingTopics');
-            setGenerationError('');
-
-            try {
-                if (!window.GoogleGenAI) throw new Error("Gemini AI library not loaded.");
-                const ai = new window.GoogleGenAI({ apiKey: process.env.API_KEY });
-                const prompt = `You are an expert educator familiar with the Indian NCERT curriculum. Generate a list of 10-15 important and specific quiz-worthy topics for Class ${selectedClass} ${subject}. Provide your response strictly in the JSON format defined by the schema.`;
-                
-                const topicsSchema = {
-                    type: Type.OBJECT,
-                    properties: { topics: { type: Type.ARRAY, items: { type: Type.STRING } } },
-                    required: ['topics']
-                };
-
-                const response = await ai.models.generateContent({
-                    model: "gemini-2.5-flash",
-                    contents: prompt,
-                    config: { responseMimeType: "application/json", responseSchema: topicsSchema },
-                });
-
-                const parsedResponse = JSON.parse(response.text);
-                if (parsedResponse.topics && parsedResponse.topics.length > 0) {
-                    setTopicsList(parsedResponse.topics);
-                    setQuizView('topicSelection');
-                } else {
-                    throw new Error("AI did not return any topics. Please try selecting the subject again.");
-                }
-            } catch(e) {
-                console.error("Topic generation failed:", e.message);
-                setGenerationError(e.message || "Failed to generate topics for this subject. Please try again.");
-                setQuizView('subject');
-            }
-        };
-
-        const handleTopicSelect = (topic) => {
-            setSelectedTopic(topic);
-            handleGenerateQuiz(topic);
-        };
         
-        const handleGenerateQuiz = async (topic) => {
-            setQuizView('generatingQuiz');
+        const handleGenerateQuiz = async (e) => {
+            e.preventDefault();
+            if (!topic.trim()) {
+                setGenerationError("Please enter a topic.");
+                return;
+            }
+            setIsGenerating(true);
             setGenerationError('');
             
             try {
                 if (!window.GoogleGenAI) throw new Error("Gemini AI library not loaded.");
                 const ai = new window.GoogleGenAI({ apiKey: process.env.API_KEY });
-                const prompt = `You are an expert educator who creates engaging quizzes for students in India. Generate a 5-question multiple-choice quiz based on the NCERT curriculum for Class ${selectedClass} on the topic of "${topic}" from the subject ${selectedSubject}. Each question must have exactly four options. Ensure the correct answer is one of the provided options. Provide your response strictly in the JSON format defined by the schema.`;
+                const prompt = `You are an expert educator who creates engaging quizzes for students. Generate a 5-question multiple-choice quiz on the topic of "${topic}". Each question must have exactly four options. Ensure the correct answer is one of the provided options. Provide your response strictly in the JSON format defined by the schema.`;
                 
                 const quizSchema = {
                     type: Type.OBJECT,
@@ -659,7 +613,9 @@
             } catch(e) {
                 console.error("Quiz generation failed:", e.message);
                 setGenerationError(e.message || "Failed to generate quiz. The topic might be too broad or too specific. Please try again.");
-                setQuizView('topicSelection');
+                setQuizView('home');
+            } finally {
+                setIsGenerating(false);
             }
         };
 
@@ -680,62 +636,48 @@
         
         const handleResetQuiz = () => {
             setQuizView('home');
-            setSelectedClass(null);
-            setSelectedSubject(null);
-            setTopicsList([]);
-            setSelectedTopic('');
+            setTopic('');
             setQuizQuestions([]);
             setUserAnswers({});
             setScore(0);
             setGenerationError('');
         };
-        
+
         const renderContent = () => {
+            if (isGenerating) {
+                return (
+                    <div className="text-center py-10">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-400 mx-auto"></div>
+                        <p className="mt-4 text-lg font-semibold text-slate-300">Generating your quiz on "{topic}"...</p>
+                        <p className="text-slate-400">Please wait a moment.</p>
+                    </div>
+                );
+            }
+
             switch(quizView) {
                 case 'home': return (
-                    <div>
-                        <h3 className="text-xl font-semibold mb-4 text-center">Select Your Class</h3>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            {classes.map(cls => <button key={cls} onClick={() => handleClassSelect(cls)} className="p-4 bg-slate-700 rounded-lg hover:bg-blue-600 transition-colors duration-200 text-lg font-bold">Class {cls}</button>)}
-                        </div>
-                    </div>
-                );
-                case 'subject': return (
-                    <div>
-                        <h3 className="text-xl font-semibold mb-4 text-center">Select Subject (Class {selectedClass})</h3>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                             {subjects.map(sub => <button key={sub} onClick={() => handleGenerateTopics(sub)} className="p-4 bg-slate-700 rounded-lg hover:bg-blue-600 transition-colors duration-200 font-bold">{sub}</button>)}
-                        </div>
-                         <button onClick={() => setQuizView('home')} className="mt-6 text-sm text-slate-400 hover:text-white">← Back to Classes</button>
-                    </div>
-                );
-                case 'generatingTopics': return (
-                    <div className="text-center py-10">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-400 mx-auto"></div>
-                        <p className="mt-4 text-lg font-semibold text-slate-300">Generating topics from NCERT curriculum...</p>
-                        <p className="text-slate-400">Please wait a moment.</p>
-                    </div>
-                );
-                case 'topicSelection': return (
-                    <div>
-                        <h3 className="text-xl font-semibold mb-4 text-center">Select a Topic for {selectedSubject}</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {topicsList.map((topic, i) => <button key={i} onClick={() => handleTopicSelect(topic)} className="p-4 bg-slate-700 rounded-lg hover:bg-blue-600 transition-colors duration-200 text-left">{topic}</button>)}
-                        </div>
-                        {generationError && <p className="text-red-400 text-center mt-4 bg-red-900/20 p-3 rounded-md">{generationError}</p>}
-                        <button onClick={() => setQuizView('subject')} className="mt-6 text-sm text-slate-400 hover:text-white">← Back to Subjects</button>
-                    </div>
-                );
-                case 'generatingQuiz': return (
-                    <div className="text-center py-10">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-400 mx-auto"></div>
-                        <p className="mt-4 text-lg font-semibold text-slate-300">Generating your quiz on "{selectedTopic}"...</p>
-                        <p className="text-slate-400">Please wait a moment.</p>
+                    <div className="max-w-xl mx-auto text-center">
+                        <h3 className="text-2xl font-semibold mb-2 text-white">AI-Powered Quiz Generator</h3>
+                        <p className="text-slate-400 mb-6">Enter any topic to generate a practice quiz and test your knowledge.</p>
+                        <form onSubmit={handleGenerateQuiz} className="space-y-4">
+                            <input
+                                type="text"
+                                value={topic}
+                                onChange={(e) => setTopic(e.target.value)}
+                                placeholder="e.g., Photosynthesis, The Mughal Empire, Quadratic Equations..."
+                                className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg"
+                                disabled={isGenerating}
+                            />
+                            {generationError && <p className="text-red-400 text-sm bg-red-900/20 p-3 rounded-md">{generationError}</p>}
+                            <button type="submit" disabled={isGenerating || !topic.trim()} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-colors duration-300 text-lg disabled:bg-slate-600 disabled:cursor-not-allowed">
+                                {isGenerating ? 'Generating...' : 'Generate Quiz'}
+                            </button>
+                        </form>
                     </div>
                 );
                 case 'active': return (
                     <div>
-                        <h3 className="text-xl font-semibold mb-6 text-center">Quiz on: {selectedTopic}</h3>
+                        <h3 className="text-xl font-semibold mb-6 text-center">Quiz on: {topic}</h3>
                         <div className="space-y-8">
                             {quizQuestions.map((q, qIndex) => (
                                 <div key={qIndex} className="bg-slate-700/50 p-6 rounded-lg">
@@ -755,7 +697,7 @@
                     </div>
                 );
                 case 'results': return (
-                    <div>
+                     <div>
                         <h2 className="text-3xl font-bold mb-4 text-center">Quiz Results</h2>
                         <p className="text-2xl font-semibold text-center mb-8 text-teal-400">You scored {score} out of {quizQuestions.length}!</p>
                         <div className="space-y-6">
@@ -1312,13 +1254,17 @@
             setLoading(true);
             const { data, error } = await supabaseClient
                 .from('achievements')
-                .select(`*, profiles ( full_name )`)
+                .select(`*, profiles ( full_name, class )`)
                 .order('created_at', { ascending: false });
             
             if (error) {
                 console.error('Error fetching achievements:', error.message);
             } else {
-                const formattedData = data.map(ach => ({...ach, studentName: ach.profiles?.full_name || 'Unknown Student'}));
+                const formattedData = data.map(ach => ({
+                    ...ach, 
+                    studentName: ach.profiles?.full_name || 'Unknown Student',
+                    studentClass: ach.profiles?.class || 'N/A',
+                }));
                 setAchievements(formattedData);
             }
             setLoading(false);
@@ -1338,8 +1284,9 @@
           const pendingAchievements = achievements.filter(ach => ach.status === 'pending');
           const reviewedAchievements = achievements.filter(ach => ach.status !== 'pending');
           const achievementsByStudent = achievements.reduce((acc, ach) => {
-              if (!acc[ach.studentName]) acc[ach.studentName] = [];
-              acc[ach.studentName].push(ach);
+              const studentKey = ach.studentName || 'Unknown';
+              if (!acc[studentKey]) acc[studentKey] = [];
+              acc[studentKey].push(ach);
               return acc;
           }, {});
           
@@ -1378,6 +1325,103 @@
               }
           };
 
+          const AcademicPerformanceChart = ({ achievements }) => {
+              const academicData = achievements
+                  .filter(ach => ach.type === 'Academic' && ach.status === 'approved')
+                  .reduce((acc, ach) => {
+                      const className = ach.studentClass || 'N/A';
+                      acc[className] = (acc[className] || 0) + (ach.points || 0);
+                      return acc;
+                  }, {});
+
+              const chartData = Object.entries(academicData)
+                  .filter(([className, points]) => className !== 'N/A' && points > 0)
+                  .sort((a, b) => b[1] - a[1]);
+
+              if (chartData.length === 0) {
+                  return (
+                    <div className="bg-slate-900 p-6 rounded-xl border border-slate-800 h-full flex flex-col">
+                        <h2 className="text-xl font-bold mb-6">Academic Performance by Class</h2>
+                        <div className="flex-grow flex items-center justify-center text-center text-slate-500 py-8">No academic data available to display.</div>
+                    </div>
+                  );
+              }
+
+              const maxPoints = Math.max(1, ...chartData.map(d => d[1]));
+
+              return (
+                  <div className="bg-slate-900 p-6 rounded-xl border border-slate-800 h-full">
+                      <h2 className="text-xl font-bold mb-6">Academic Performance by Class (Total Points)</h2>
+                      <div className="space-y-4">
+                          {chartData.map(([className, points]) => (
+                              <div key={className} className="grid grid-cols-4 gap-4 items-center">
+                                  <span className="text-sm font-medium text-slate-300 col-span-1 truncate">{className}</span>
+                                  <div className="col-span-3 bg-slate-800 rounded-full h-6 flex items-center">
+                                      <div
+                                          className="bg-gradient-to-r from-teal-500 to-cyan-500 h-6 rounded-full flex items-center justify-end pr-2"
+                                          style={{ width: `${(points / maxPoints) * 100}%` }}
+                                      >
+                                          <span className="text-sm font-bold text-white">{points}</span>
+                                      </div>
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+                  </div>
+              );
+          };
+
+          const CoCurricularChart = ({ achievements }) => {
+              const coCurricularTypes = ['Sports', 'Cultural', 'Arts', 'Social Service', 'Other'];
+              const coCurricularData = achievements
+                  .filter(ach => coCurricularTypes.includes(ach.type) && ach.status === 'approved')
+                  .reduce((acc, ach) => {
+                      acc[ach.type] = (acc[ach.type] || 0) + 1;
+                      return acc;
+                  }, {});
+
+              const chartData = Object.entries(coCurricularData).sort((a, b) => b[1] - a[1]);
+
+              if (chartData.length === 0) {
+                  return (
+                     <div className="bg-slate-900 p-6 rounded-xl border border-slate-800 h-full flex flex-col">
+                        <h2 className="text-xl font-bold mb-6">Co-Curricular Activities</h2>
+                        <div className="flex-grow flex items-center justify-center text-center text-slate-500 py-8">No co-curricular data available to display.</div>
+                    </div>
+                  );
+              }
+              
+              const maxCount = Math.max(1, ...chartData.map(d => d[1]));
+              const colors = {
+                  'Sports': 'from-blue-500 to-sky-500',
+                  'Cultural': 'from-purple-500 to-violet-500',
+                  'Arts': 'from-pink-500 to-rose-500',
+                  'Social Service': 'from-orange-500 to-amber-500',
+                  'Other': 'from-slate-500 to-gray-500',
+              };
+
+              return (
+                  <div className="bg-slate-900 p-6 rounded-xl border border-slate-800 h-full">
+                      <h2 className="text-xl font-bold mb-6">Co-Curricular Activities (Count)</h2>
+                      <div className="space-y-4">
+                          {chartData.map(([type, count]) => (
+                              <div key={type} className="grid grid-cols-4 gap-4 items-center">
+                                  <span className="text-sm font-medium text-slate-300 col-span-1">{type}</span>
+                                  <div className="col-span-3 bg-slate-800 rounded-full h-6 flex items-center">
+                                      <div
+                                          className={`bg-gradient-to-r ${colors[type] || colors['Other']} h-6 rounded-full flex items-center justify-end pr-2`}
+                                          style={{ width: `${(count / maxCount) * 100}%` }}
+                                      >
+                                          <span className="text-sm font-bold text-white">{count}</span>
+                                      </div>
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+                  </div>
+              );
+          };
+
           const NotificationsManager = () => {
               return (
                 <div className="bg-slate-900 p-8 rounded-xl border-2 border-dashed border-yellow-500/50 text-center">
@@ -1399,13 +1443,19 @@
                        <button onClick={handleLogout} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-5 rounded-lg transition-colors duration-300">Logout</button>
                   </header>
                   <main className="p-8">
-                    {loading ? <div className="text-center py-10">Loading achievements...</div> : <>
+                    {loading ? <div className="text-center py-10">Loading dashboard...</div> : <>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
                             <StatCard title="Pending Approvals" value={pendingAchievements.length} icon={<svg className="w-8 h-8 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>} />
                             <StatCard title="Total Reviewed" value={reviewedAchievements.length} icon={<svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>} />
                             <StatCard title="Total Achievements" value={achievements.length} icon={<svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l1.293-1.293a1 1 0 011.414 0l.586.586a1 1 0 001.414 0l.586-.586a1 1 0 011.414 0L17 6v13m-8 0h8M5 21h14"></path></svg>} />
                             <StatCard title="Total Students" value={Object.keys(achievementsByStudent).length} icon={<svg className="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>} />
                         </div>
+
+                        <div className="mb-10 grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            <AcademicPerformanceChart achievements={achievements} />
+                            <CoCurricularChart achievements={achievements} />
+                        </div>
+
                       <div className="border-b border-slate-800 mb-6">
                            <TabButton isActive={activeTab === 'approval'} onClick={() => setActiveTab('approval')}>Approval Workflow</TabButton>
                            <TabButton isActive={activeTab === 'allAchievements'} onClick={() => setActiveTab('allAchievements')}>All Achievements</TabButton>
