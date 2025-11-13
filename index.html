@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Skillera and APS Jodhpur Portal" />
     <title>Skillera | APS Jodhpur</title>
+    <meta name="google-site-verification" content="-vfYyKz_xeKEAVnzS1gxn6fQ7BCR_2jiwxL8rGadaSc" />
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -1115,17 +1116,24 @@
               const [loading, setLoading] = useState(true);
 
               useEffect(() => {
-                  setLoading(true);
-                  // Mock notifications since the database table might not exist, preventing errors.
-                  const mockNotifications = [
-                      { id: 1, title: 'Annual Sports Day Announced!', content: 'Get ready for the annual sports day on the 15th of next month. Sign-ups are open now in the office.', created_at: new Date().toISOString() },
-                      { id: 2, title: 'Science Olympiad Registration Open', content: 'The registration for the National Science Olympiad is now open. Please contact your science teacher for more details.', created_at: new Date(Date.now() - 86400000).toISOString() },
-                  ];
-                  setNotifications(mockNotifications);
-                  setLoading(false);
+                  const fetchNotifications = async () => {
+                      setLoading(true);
+                      const { data, error } = await supabaseClient
+                          .from('notifications')
+                          .select('*')
+                          .order('created_at', { ascending: false });
+                      
+                      if (error) {
+                          console.error("Error fetching notifications:", error);
+                      } else {
+                          setNotifications(data);
+                      }
+                      setLoading(false);
+                  };
+                  fetchNotifications();
               }, []);
 
-              if (loading) return <p>Loading notifications...</p>;
+              if (loading) return <p>Loading announcements...</p>;
               
               return (
                   <div className="bg-slate-800 p-6 rounded-lg shadow-inner">
@@ -1142,7 +1150,7 @@
                               ))}
                           </div>
                       ) : (
-                          <p className="text-center text-slate-500 py-8">No notifications yet.</p>
+                          <p className="text-center text-slate-500 py-8">No new announcements at this time.</p>
                       )}
                   </div>
               );
@@ -1178,7 +1186,7 @@
             achievements: 'My Achievements',
             quizzes: 'Practice Quizzes',
             recommendations: 'For You ✨',
-            notifications: 'Notifications',
+            notifications: 'Announcements',
             leaderboard: 'Leaderboard',
             profile: 'My Profile'
           };
@@ -1423,16 +1431,100 @@
           };
 
           const NotificationsManager = () => {
+              const [notifications, setNotifications] = useState([]);
+              const [newNotification, setNewNotification] = useState({ title: '', content: '' });
+              const [loading, setLoading] = useState(true);
+              const [isSubmitting, setIsSubmitting] = useState(false);
+
+              const fetchNotifications = useCallback(async () => {
+                  setLoading(true);
+                  const { data, error } = await supabaseClient
+                      .from('notifications')
+                      .select('*')
+                      .order('created_at', { ascending: false });
+                  if (error) console.error("Error fetching notifications:", error);
+                  else setNotifications(data);
+                  setLoading(false);
+              }, []);
+
+              useEffect(() => { fetchNotifications() }, [fetchNotifications]);
+              
+              const handleInputChange = (e) => {
+                  const { name, value } = e.target;
+                  setNewNotification(prev => ({ ...prev, [name]: value }));
+              };
+
+              const handleAddNotification = async (e) => {
+                  e.preventDefault();
+                  if (!newNotification.title.trim() || !newNotification.content.trim()) {
+                      alert("Title and content are required.");
+                      return;
+                  }
+                  setIsSubmitting(true);
+                  const { error } = await supabaseClient.from('notifications').insert(newNotification);
+                  if (error) {
+                      console.error("Error adding notification:", error);
+                      alert("Failed to add notification.");
+                  } else {
+                      setNewNotification({ title: '', content: '' });
+                      await fetchNotifications();
+                  }
+                  setIsSubmitting(false);
+              };
+              
+              const handleDeleteNotification = async (id) => {
+                  if (window.confirm("Are you sure you want to delete this notification?")) {
+                      const { error } = await supabaseClient.from('notifications').delete().eq('id', id);
+                      if (error) {
+                          console.error("Error deleting notification:", error);
+                          alert("Failed to delete notification.");
+                      } else {
+                          await fetchNotifications();
+                      }
+                  }
+              };
+              
               return (
-                <div className="bg-slate-900 p-8 rounded-xl border-2 border-dashed border-yellow-500/50 text-center">
-                    <h2 className="text-2xl font-bold text-yellow-400 mb-2">Database Configuration Needed</h2>
-                    <p className="text-slate-300 max-w-2xl mx-auto">
-                        The 'Notifications' feature requires a database table named <code className="bg-slate-700 text-sm font-mono p-1 rounded">notifications</code> to be created in your Supabase project.
-                    </p>
-                    <p className="text-slate-400 mt-4">
-                        Please create the table with columns like <code className="bg-slate-700 text-sm font-mono p-1 rounded">id</code>, <code className="bg-slate-700 text-sm font-mono p-1 rounded">created_at</code>, <code className="bg-slate-700 text-sm font-mono p-1 rounded">title</code>, and <code className="bg-slate-700 text-sm font-mono p-1 rounded">content</code> to enable this feature.
-                    </p>
-                </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+                      <div className="bg-slate-900 p-6 rounded-xl border border-slate-800">
+                          <h2 className="text-xl font-bold mb-4">Add New Announcement</h2>
+                          <form onSubmit={handleAddNotification} className="space-y-4">
+                              <div>
+                                  <label htmlFor="title" className="block text-sm font-medium text-slate-300 mb-1">Title</label>
+                                  <input type="text" id="title" name="title" value={newNotification.title} onChange={handleInputChange} className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                              </div>
+                              <div>
+                                  <label htmlFor="content" className="block text-sm font-medium text-slate-300 mb-1">Content</label>
+                                  <textarea id="content" name="content" value={newNotification.content} onChange={handleInputChange} className="w-full h-32 px-4 py-2 bg-slate-700 border border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                              </div>
+                              <button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300 disabled:bg-slate-600">
+                                  {isSubmitting ? "Sending..." : "Send Announcement"}
+                              </button>
+                          </form>
+                      </div>
+
+                      <div className="bg-slate-900 p-6 rounded-xl border border-slate-800">
+                          <h2 className="text-xl font-bold mb-4">Sent Announcements</h2>
+                          {loading ? <p>Loading...</p> : notifications.length > 0 ? (
+                              <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                                  {notifications.map(notif => (
+                                      <div key={notif.id} className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
+                                          <div className="flex justify-between items-start">
+                                            <div>
+                                                <h3 className="font-bold text-white mb-1">{notif.title}</h3>
+                                                <p className="text-xs text-slate-500 mb-2">{new Date(notif.created_at).toLocaleString()}</p>
+                                            </div>
+                                            <button onClick={() => handleDeleteNotification(notif.id)} className="text-red-400 hover:text-red-300 text-xs font-bold">DELETE</button>
+                                          </div>
+                                          <p className="text-sm text-slate-300 whitespace-pre-wrap">{notif.content}</p>
+                                      </div>
+                                  ))}
+                              </div>
+                          ) : (
+                              <p className="text-slate-500 text-center py-4">No announcements have been sent.</p>
+                          )}
+                      </div>
+                  </div>
               );
           };
 
